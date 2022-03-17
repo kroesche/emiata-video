@@ -3,6 +3,9 @@ eMiata Video Processing
 
 `vidlog.py` - tool to process eMiata video and instrumentation
 
+**LICENSE:** The license for this project is the
+[MIT License](https://opensource.org/licenses/MIT).
+
 To help analyze and tune vehicle performance, we need to combine several data
 sources into a single video. The inputs are:
 
