@@ -30,9 +30,24 @@ Here is a diagram showing the data flow:
 
 ![Flow diagram](img/flow.png)
 
+Installing and Using
+--------------------
+
+You should definitely use a virtual environment. You can use the provided
+script `setup.sh` to create the virtual environment and install the required
+modules and this module in "development" mode. After that you need to activate
+the virtual environment. Then you are good to go.
+
+```
+./setup.sh
+. venv/bin/activate
+```
+
 Here are the command line options, and example output:
 
 ```
+$ vidlog --help
+
 usage: vidlog.py [-h] [-v] [-q] -i INPUT -l LOGFILE -d DASH [-o OUTPUT]
 
 eMiata Video Processor
@@ -49,12 +64,20 @@ optional arguments:
   -o OUTPUT, --output OUTPUT
                         output video file (default=processed.mp4)
 
-❯ python vidlog.py --input test_clip.mov --logfile test_log.txt --dash vokoscreen.mp4
+$ vidlog --input test_clip.mov --logfile test_log.txt --dash vokoscreen.mp4
 Opening video test_clip.mov for overlay processing.
 ..................................................
 Finished creating text overlay
 Processing dash instruments file vokoscreen.mp4
 Finished processing dash instruments
+```
+
+To clean up you can just delete the virtual environment. But be sure to
+deactivate first:
+
+```
+$ deactivate
+$ rm -rf venv
 ```
 
 Inputs and Outputs
