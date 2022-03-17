@@ -1,7 +1,7 @@
 eMiata Video Processing
 =======================
 
-Notes about how to process eMiata videos for vehicle analysis.
+`vidlog.py` - tool to process eMiata video and instrumentation
 
 To help analyze and tune vehicle performance, we need to combine several data
 sources into a single video. The inputs are:
@@ -10,21 +10,49 @@ sources into a single video. The inputs are:
 * instrument panel video
 * text log file
 
-The output of this process should be the primary video, including audio, with
+The output of this process is the primary video, including audio, with
 an overlay panel showing scrolling log message synchronized in time with the
 primary video, and the instrument panel overlay.  Here is a frame from a proof-
 of-concept video:
 
-![video screen shot](screenshot.jpg)
+![video screen shot](img/screenshot.jpg)
 
-![Flow diagram](flow.png)
-
-The video processing program is Python and makes use of
+This is a video processing program written in Python. It makes use of
 [opencv-python](https://github.com/opencv/opencv-python) to access the opencv
-processing library.
+processing library, and
+[ffmpeg-python](https://github.com/kkroening/ffmpeg-python) to make it easy
+to process video using ffmpeg.
 
-For the purposes of this discussion, the processing program will be called
-`makevid`.
+Here is a diagram showing the data flow:
+
+![Flow diagram](img/flow.png)
+
+Here are the command line options, and example output:
+
+```
+usage: vidlog.py [-h] [-v] [-q] -i INPUT -l LOGFILE -d DASH [-o OUTPUT]
+
+eMiata Video Processor
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -v, --verbose         turn on extra output
+  -q, --quiet           silence all output
+  -i INPUT, --input INPUT
+                        input video file
+  -l LOGFILE, --logfile LOGFILE
+                        input log text file
+  -d DASH, --dash DASH  input dash instruments video cap
+  -o OUTPUT, --output OUTPUT
+                        output video file (default=processed.mp4)
+
+❯ python vidlog.py --input test_clip.mov --logfile test_log.txt --dash vokoscreen.mp4
+Opening video test_clip.mov for overlay processing.
+..................................................
+Finished creating text overlay
+Processing dash instruments file vokoscreen.mp4
+Finished processing dash instruments
+```
 
 Inputs and Outputs
 ------------------
@@ -45,11 +73,11 @@ The logfile is timestamped lines of text. It looks like this:
 ```
 
 The text timestamp at the beginning of each line can be read and coverted into
-a unix time stamp of seconds and microseconds. The `makevid` program will take
+a unix time stamp of seconds and microseconds. The `vidlog` program will take
 the first line of the log file as the time origin for the video, and use that
 as an offset for all remaining time stamps in the file.
 
-`makevid` will process video frames, keeping track of the time. Whenever the
+`vidlog` will process video frames, keeping track of the time. Whenever the
 video time is equal or greater than the timestamp on a line in the log file,
 that line will be added to the text log overlay panel in the video.
 
@@ -62,15 +90,15 @@ file time offset.
 
 ### Primary Video
 
-
 The primary video comes from a video camera such as a GoPro, and includes
 audio of the environment. The audio may include people talking and vehicle
 sounds.
 
-Because the `makevid` processing program does not include audio, _ffmpeg_ is
-used to extract the audio from the original video, to be recombined later.
+Because OpenCV does not include audio, the audio from the primary video is
+extracted at the beginning of the process, and then re-added at the end after
+the overlays have been applied.
 
-The primary video feeds into the `makevid` program where it is overlaid with
+The primary video feeds into the `vidlog` program where it is overlaid with
 log data text.
 
 ### Instrument Video
@@ -86,51 +114,21 @@ the instrument panel video. Finally, the original audio is also recombined.
 These inputs are all combined using *ffmpeg* to produce the final video with
 all overlays, and audio.
 
-Processing Tools
-----------------
+Limitations
+-----------
 
-### makevid
+The current iteration of this program makes a number of assumptions. All of the
+following are meant to be improved in future versions. See the github issues
+for a list of TODOs.
 
-`makevid` is a Python program (this is a placeholder name for now). It uses
-`python-opencv` to make use of the video frame processing library to add log
-file text in an overlay window.
+**Assumptions**
 
-The input is the original driving video and a text log file. The program reads
-in video frames and keeps track of the time position in the video. It compares
-the video time to the time stamp of lines in the log file. When the video frame
-time is the same or greater than the time stamp of the line in the log file, it
-will add the line to a text window overlay. This may result in multiple lines
-being added in a single frame.
-
-The lines in the log file have a wall clock timestamp. This needs to be
-synchronized with the time of the video. I see three ways to handle this:
-
-1. assume they both start at the same time and compute an offset based on the
-   time stamp of the first line in the file
-2. allow the user to specify the offset
-3. assume the video file metadata accurately reflects the start time of the
-   video and use that to compute an offset to synchronize with the log file.
-
-Ultimately, `makevid` should have a command line and/or a configuration file
-to let the user specify input and output files, sync method, and other features
-such as position and size of overlays, transparency, etc.
-
-### ffmpeg
-
-This is an off-the-shelf open source program for processing video. It excels
-at tasks related to processing, separating, combining, and transcoding video.
-It can handle changes in frame rate as well.
-
-It is possible that the instrument video and the primary video do not have the
-same frame rate. Ffmpeg will handle this when the instrument video is combined
-into the output. The ffmpeg combining stage is also the place where the size
-and quality of the final video can be adjusted.
-
-### Process Wrapper
-
-There will be an as-yet unnamed script or program that will be used to wrap the
-entire process, hiding the separate stages from the user. This could be another
-Python program, a shell script, or a Makefile.
+* the start of the primary video and the log file are the same time
+* the log file contains at least as much data as the video duration
+* the instrument panel video is the same duration
+* the overlay positions and sizes are hard coded
+* the overlay properties (text color, bg color, font size, etc)
+  are all hard coded
 
 Discussion of Approaches
 ------------------------
