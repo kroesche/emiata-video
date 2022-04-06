@@ -48,7 +48,7 @@ Here are the command line options, and example output:
 ```
 $ vidlog --help
 
-usage: vidlog.py [-h] [-v] [-q] -i INPUT -l LOGFILE -d DASH [-o OUTPUT]
+usage: vidlog [-h] [-v] [-q] -i INPUT -l LOGFILE -d DASH [-o OUTPUT] [-t DURATION] [-ss START]
 
 eMiata Video Processor
 
@@ -63,14 +63,29 @@ optional arguments:
   -d DASH, --dash DASH  input dash instruments video cap
   -o OUTPUT, --output OUTPUT
                         output video file (default=processed.mp4)
+  -t DURATION, --duration DURATION
+                        duration in seconds
+  -ss START, --start START
+                        start position in seconds
+```
 
-$ vidlog --input test_clip.mov --logfile test_log.txt --dash vokoscreen.mp4
+Example that processes 15 seconds of video starting at 80 seconds from the
+beginning:
+
+```
+$ vidlog --input test_clip.mov --logfile test_log.txt --dash vokoscreen.mp4 -ss 80 -t 15
 Opening video test_clip.mov for overlay processing.
-..................................................
+Seconds processed |████████████████████████████████| 15/15
+
 Finished creating text overlay
 Processing dash instruments file vokoscreen.mp4
 Finished processing dash instruments
 ```
+
+**Note:** for high resolution video, the dash processing step can take a long
+time. Possibly more than 1 second per second of input. There is not on-screen
+progress indicator, but if you use `--verbose` you can see the progress
+indication from ffmpeg.
 
 To clean up you can just delete the virtual environment. But be sure to
 deactivate first:
@@ -99,9 +114,7 @@ The logfile is timestamped lines of text. It looks like this:
 ```
 
 The text timestamp at the beginning of each line can be read and coverted into
-a unix time stamp of seconds and microseconds. The `vidlog` program will take
-the first line of the log file as the time origin for the video, and use that
-as an offset for all remaining time stamps in the file.
+a unix time stamp of seconds and microseconds.
 
 `vidlog` will process video frames, keeping track of the time. Whenever the
 video time is equal or greater than the timestamp on a line in the log file,
@@ -149,9 +162,9 @@ for a list of TODOs.
 
 **Assumptions**
 
-* the start of the primary video and the log file are the same time
-* the log file contains at least as much data as the video duration
-* the instrument panel video is the same duration
+* (FIXED) the start of the primary video and the log file are the same time
+* (FIXED) the log file contains at least as much data as the video duration
+* (FIXED) the instrument panel video is the same duration
 * the overlay positions and sizes are hard coded
 * the overlay properties (text color, bg color, font size, etc)
   are all hard coded
