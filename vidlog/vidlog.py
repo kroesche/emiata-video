@@ -34,6 +34,7 @@ from progress.bar import IncrementalBar
 import xml.etree.ElementTree as ET
 import subprocess
 import pathlib
+import logging
 
 _verbose = False
 _quiet = False
@@ -79,6 +80,10 @@ class Config(object):
             self._time = TimeConfig(config=cfgdash)
         else:
             self._time = TimeConfig()
+        logging.debug("Config:\n" + str(self))
+
+    def __str__(self):
+        return str(self._log) + str(self._dash) + str(self._time)
 
     @property
     def log(self):
@@ -132,6 +137,18 @@ class LogConfig(object):
         self.fgcolor = ast.literal_eval(cfg['fgcolor'])
         self.bgcolor = ast.literal_eval(cfg['bgcolor'])
         self.alpha = float(cfg['alpha'])
+
+    def __str__(self):
+        desc = "LogConfig:\n"
+        desc += f"num lines:      {self.lines}\n"
+        desc += f"font:           {self.font}\n"
+        desc += f"fontscale:      {self.fontscale}\n"
+        desc += f"lineheight:     {self.lineheight}\n"
+        desc += f"box dimensions: {self.width}x{self.height}\n"
+        desc += f"box origin:     {self.x},{self.y}\n"
+        desc += f"box padding:    {self.padx},{self.pady}\n"
+        desc += f"colors:         fg({self.fgcolor}) bg({self.bgcolor}) alpha({self.alpha})\n"
+        return desc
 
 class DashConfig(object):
     _default = {
@@ -199,6 +216,14 @@ class LogBuffer(object):
         self._nextts = datetime.datetime.strptime(self._nextline[:26], self._fmt).timestamp()
         self._file.seek(0)
         self._buf = []
+        logging.debug("Created LogBuffer\n" + str(self))
+
+    def __str__(self):
+        desc = "LogBuffer:\n"
+        desc += f"filename: {self._file.name}\n"
+        desc += f"maxlines: {self._max}\n"
+        desc += f"next ts:  {self._nextts}\n"
+        return desc
 
     # update the buffer content according to the timestamp
     # it will iterate through lines in the input text log file and compare
@@ -217,8 +242,7 @@ class LogBuffer(object):
                 else:
                     self._nextline = None
                     self._buf.append("---end of log---")
-                    if _verbose:
-                        print("end of text log")
+                    logging.debug("end of text log")
                     break
             while len(self._buf) > self._max:
                 self._buf.pop(0)
@@ -226,9 +250,9 @@ class LogBuffer(object):
     def close(self):
         self._file.close()
 
-    #@property
-    #def timestamp(self):
-    #    return self._offset
+    @property
+    def next_ts(self):
+        return self._nextts
 
     # access the lines of the log buffer as an iterator
     def __iter__(self):
@@ -250,11 +274,8 @@ class VidLog(object):
             self._cfg = cfg
         else:
             self._cfg = Config()
-        if _verbose:
-            print("starting extracting GPS data")
         self._timestamp = self.extract_gps_timestamp()
-        if _verbose:
-            print("finished extracting GPS data")
+        logging.debug("Created VidLog:\n" + str(self))
 
     def __str__(self):
         desc =  "==============\n"
@@ -271,16 +292,26 @@ class VidLog(object):
         desc += "\n--------------\n\n"
         return desc
 
+    def cleanup(self):
+        # remove the temporary file
+        if self._tmpfile:
+            logging.info("removing temporary video file")
+            pathlib.Path(self._tmpfile).unlink(missing_ok=True)
+        else:
+            logging.warning("no temporary video file to delete")
+
     def extract_gps_timestamp(self):
+        logging.info("start extracting GPS data")
         # make a temporary file to hold the extracted data
         _, tmpfile = tempfile.mkstemp()
+        logging.debug(f"GPS temporary file ({tmpfile})")
 
         # run gopro2gpx to extract the gps data from the video file
         proc = subprocess.run(['gopro2gpx', self._vidfile, tmpfile], capture_output=True)
         if proc.returncode != 0:
-            print("There was a problem extracting GPS data from the video")
-            print("stdout:", proc.stdout)
-            print("stderr:", proc.stderr)
+            logging.error("There was a problem extracting GPS data from the video")
+            logging.error("stdout:\n" + proc.stdout)
+            logging.error("stderr:\n" + proc.stderr)
             raise RuntimeError("An error occured while extracting GPS data")
 
         # now extract the timestamp from the gpx file
@@ -292,23 +323,29 @@ class VidLog(object):
         if time_el is None:
             raise RuntimeError(f"Could not find time element in GPS data ({tmpfile}.gpx)")
         timestr = time_el.text[:-1]  # remove trailing 'Z'
+        logging.debug("found GPS timestamp ({time_el.text})")
 
         # remove the temporary file
+        logging.debug("removing GPS temporary file")
         pathlib.Path(tmpfile).unlink(missing_ok=True)
 
         # convert to timestamp and return
         dt = datetime.datetime.fromisoformat(timestr)
         dt = dt.replace(tzinfo=datetime.timezone.utc)  # mark this time as UTC
         dt = dt.astimezone()  # and now its local - same as the other time refs
+        logging.info(f"GPS time: {dt.isoformat(sep=' ')}")
+        logging.info("finished extracting GPS data")
         return dt.timestamp()
 
     def add_overlay(self, logfile):
+        logging.info("start add logging overlay")
         cfg = self._cfg.log  # convenience variable
         tfg = self._cfg.time
 
         # create a temporary file for the intermediate product
         _, tmpfile = tempfile.mkstemp(suffix=".mp4")
         self._tmpfile = tmpfile
+        logging.debug(f"overlay temporary video file:\n{tmpfile}")
 
         # open the video capture
         cap = cv.VideoCapture(self._vidfile)
@@ -327,11 +364,8 @@ class VidLog(object):
         # assemble codec chars into a string ex: 'h', 'e', 'v', 'c'
         codecstr = "".join([chr((int(codec) >> (8 * i)) & 0xFF) for i in range(4)])
 
-        if not _quiet:
-            print(f"Opening video {self._vidfile} for overlay processing.")
-
-        if _verbose:
-            print(f"Properties: {width}x{height}, {fps} fps, {codecstr}, {bitrate} bps")
+        logging.info(f"Opening video {self._vidfile} for overlay processing.")
+        logging.debug(f"Properties: {width}x{height}, {fps} fps, {codecstr}, {bitrate} bps")
 
         # open the output video writer
         # TODO should the video format be configurable
@@ -340,9 +374,7 @@ class VidLog(object):
         fourcc = cv.VideoWriter_fourcc(*'avc1')
         writer = cv.VideoWriter(tmpfile, fourcc, fps, (width, height))
 
-        if _verbose:
-            print(f"Adding logfile overlay from: {logfile}")
-            print(f"Writing to output file {tmpfile}")
+        logging.debug(f"Adding logfile overlay from: {logfile}")
 
         # create the log buffer
         lb = LogBuffer(logfile, maxlines=cfg.lines)
@@ -362,8 +394,7 @@ class VidLog(object):
         while play_time < stop_time:
             ret, frame = cap.read()
             if not ret:
-                if _verbose:
-                    print("reached end of input video stream")
+                logging.debug("reached end of input video stream")
                 break
 
             # get the current video time within this file (0-origin)
@@ -432,7 +463,7 @@ class VidLog(object):
 
         if not _quiet:
             bar.finish()
-            print("\nFinished creating text overlay")
+        logging.info("Finished creating text overlay")
         lb.close()
         writer.release()
         cap.release()
@@ -443,9 +474,8 @@ class VidLog(object):
 
     def add_dash(self, dashfile):
         cfg = self._cfg.dash  # convenience variable
-        if not _quiet:
-            print(f"Processing dash instruments file {dashfile}")
-        vid = ffmpeg.input(self._tmpfile)
+        logging.info(f"Processing dash instruments file {dashfile}")
+        vid = ffmpeg.input(self._tmpfile, hide_banner=None)
         dash = ffmpeg.input(dashfile, ss=self._start, t=self._duration)
         audio = ffmpeg.input(self._vidfile, ss=self._start, t=self._duration)
         astream = audio.audio
@@ -457,19 +487,17 @@ class VidLog(object):
         #overlaid = vid.overlay(scaled, eof_action="pass", x=dashx, y=dashy, enable="gte(t,5)")
         overlaid = vid.overlay(scaled, eof_action="pass", x=dashx, y=dashy)
         out = ffmpeg.output(overlaid, astream, self._outfile)
-        if _verbose:
-            print("ffmpeg args:")
-            print(out.get_args())
-            print("running ffmpeg")
+        logging.debug("ffmpeg args:")
+        logging.debug(out.get_args())
+        logging.info("running ffmpeg - this can take a while")
+        logging.info("use --verbose for detailed output from ffmpeg")
         out.run(quiet=not _verbose, overwrite_output=True)
-        if not _quiet:
-            print("Finished processing dash instruments")
+        logging.info("Finished processing dash instruments")
 
 
 class VidProps(object):
     def __init__(self, vidfile):
-        if _verbose:
-            print("starting collecting video properties")
+        logging.info("starting collecting video properties")
         self._filename = vidfile
         probe = ffmpeg.probe(vidfile) 
         vidstream = None
@@ -506,8 +534,7 @@ class VidProps(object):
             #self._ts = timestamp.timestamp()
         else:
             raise RuntimeError(f"could not find video stream in file {vidfile}")
-        if _verbose:
-            print("finished collecting video properties")
+        logging.info("finished collecting video properties")
 
     @property
     def filename(self):
@@ -585,12 +612,20 @@ def cli():
     # set quiet level
     _quiet = True if args.quiet else False
 
+    if _quiet:
+        loglevel = logging.WARNING
+    elif _verbose:
+        loglevel = logging.DEBUG
+    else:
+        loglevel = logging.INFO
+
+    logging.basicConfig(level=loglevel, format="%(levelname)s:%(message)s")
+
     vid = VidLog(vidfile=args.input, outfile=args.output, start=args.start, duration=args.duration)
-    if _verbose:
-        print(vid)
 
     vid.add_overlay(args.logfile)
     vid.add_dash(args.dash)
+    vid.cleanup()
 
 #    props = VidProps(args.input)
 #    print(props)
