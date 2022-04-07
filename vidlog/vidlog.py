@@ -28,6 +28,7 @@ import tempfile
 import cv2 as cv
 import ffmpeg
 import os
+import sys
 import configparser
 import ast
 from progress.bar import IncrementalBar
@@ -251,7 +252,7 @@ class LogBuffer(object):
         self._file.close()
 
     @property
-    def next_ts(self):
+    def timestamp(self):
         return self._nextts
 
     # access the lines of the log buffer as an iterator
@@ -260,7 +261,7 @@ class LogBuffer(object):
 
 # represents the video with log overlays
 class VidLog(object):
-    def __init__(self, vidfile, outfile, start=0, duration=0, cfg=None):
+    def __init__(self, vidfile, outfile, start=0, duration=0, cfg=None, gps_time=True):
         self._props = VidProps(vidfile)
         self._vidfile = vidfile
         self._outfile = outfile
@@ -274,7 +275,13 @@ class VidLog(object):
             self._cfg = cfg
         else:
             self._cfg = Config()
-        self._timestamp = self.extract_gps_timestamp()
+        if gps_time:
+            logging.debug("using GPS time for timestamp")
+            self._timestamp = self.extract_gps_timestamp()
+        else:
+            logging.debug("using video creation time for timestamp")
+            self._timestamp = self._props.timestamp
+
         logging.debug("Created VidLog:\n" + str(self))
 
     def __str__(self):
@@ -291,6 +298,10 @@ class VidLog(object):
         desc += datetime.datetime.fromtimestamp(self._timestamp).isoformat(sep=' ')
         desc += "\n--------------\n\n"
         return desc
+
+    @property
+    def timestamp(self):
+        return self._timestamp
 
     def cleanup(self):
         # remove the temporary file
@@ -603,6 +614,10 @@ def cli():
                         help="output video file (default=processed.mp4)")
     parser.add_argument('-t', "--duration", type=int, help="duration in seconds")
     parser.add_argument('-ss', "--start", type=int, help="start position in seconds")
+    parser.add_argument("--bad-gps", action="store_true",
+                        help="dont use GPS for time, use file time instead")
+    parser.add_argument("--check-timestamps", action="store_true",
+                        help="check file timestamps and exit")
 
     args = parser.parse_args()
 
@@ -621,7 +636,17 @@ def cli():
 
     logging.basicConfig(level=loglevel, format="%(levelname)s:%(message)s")
 
-    vid = VidLog(vidfile=args.input, outfile=args.output, start=args.start, duration=args.duration)
+    logging.info("If you dont want to see these messages, use --quiet")
+
+    vid = VidLog(vidfile=args.input, outfile=args.output, start=args.start, duration=args.duration, gps_time=not args.bad_gps)
+
+    if args.check_timestamps:
+        vid_ts = datetime.datetime.fromtimestamp(vid.timestamp).isoformat(sep=' ')
+        lb = LogBuffer(args.logfile)
+        lb_ts = datetime.datetime.fromtimestamp(lb.timestamp).isoformat(sep=' ')
+        print(f"Video Timestamp: {vid_ts}")
+        print(f"Log Timestamp:   {lb_ts}")
+        sys.exit()
 
     vid.add_overlay(args.logfile)
     vid.add_dash(args.dash)
