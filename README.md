@@ -83,7 +83,7 @@ Finished processing dash instruments
 ```
 
 **Note:** for high resolution video, the dash processing step can take a long
-time. Possibly more than 1 second per second of input. There is not on-screen
+time. Possibly more than 1 second per second of input. There is no on-screen
 progress indicator, but if you use `--verbose` you can see the progress
 indication from ffmpeg.
 

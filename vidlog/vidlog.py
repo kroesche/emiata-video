@@ -31,6 +31,9 @@ import os
 import configparser
 import ast
 from progress.bar import IncrementalBar
+import xml.etree.ElementTree as ET
+import subprocess
+import pathlib
 
 _verbose = False
 _quiet = False
@@ -193,8 +196,7 @@ class LogBuffer(object):
         self._max = maxlines
         self._file = open(filename, "rt")
         self._nextline = self._file.readline().strip()
-        self._offset = datetime.datetime.strptime(self._nextline[:26], self._fmt).timestamp()
-        self._nextts = self._offset
+        self._nextts = datetime.datetime.strptime(self._nextline[:26], self._fmt).timestamp()
         self._file.seek(0)
         self._buf = []
 
@@ -207,7 +209,6 @@ class LogBuffer(object):
     # more than one line can be added as a result of this function call
     def update(self, timestamp):
         if self._nextline:
-            #while (timestamp + self._offset) >= self._nextts:
             while timestamp >= self._nextts:
                 self._buf.append(self._nextline)
                 self._nextline = self._file.readline().strip()
@@ -237,9 +238,6 @@ class LogBuffer(object):
 class VidLog(object):
     def __init__(self, vidfile, outfile, start=0, duration=0, cfg=None):
         self._props = VidProps(vidfile)
-        if _verbose:
-            print(self._props)
-        self._timestamp = self._props.timestamp
         self._vidfile = vidfile
         self._outfile = outfile
         self._tmpfile = None
@@ -252,6 +250,57 @@ class VidLog(object):
             self._cfg = cfg
         else:
             self._cfg = Config()
+        if _verbose:
+            print("starting extracting GPS data")
+        self._timestamp = self.extract_gps_timestamp()
+        if _verbose:
+            print("finished extracting GPS data")
+
+    def __str__(self):
+        desc =  "==============\n"
+        desc += "VIDEO OVERLAY:\n"
+        desc += "==============\n"
+        desc += str(self._props)
+        desc += "\nSettings:\n"
+        desc += f" starting offset: {self._start} secs\n"
+        desc += f" output duration: {self._duration} secs\n"
+        desc += f" output file:     {self._outfile}\n"
+        desc += f" GPS timestamp:   {self._timestamp}\n"
+        desc +=  " GPS time:        "
+        desc += datetime.datetime.fromtimestamp(self._timestamp).isoformat(sep=' ')
+        desc += "\n--------------\n\n"
+        return desc
+
+    def extract_gps_timestamp(self):
+        # make a temporary file to hold the extracted data
+        _, tmpfile = tempfile.mkstemp()
+
+        # run gopro2gpx to extract the gps data from the video file
+        proc = subprocess.run(['gopro2gpx', self._vidfile, tmpfile], capture_output=True)
+        if proc.returncode != 0:
+            print("There was a problem extracting GPS data from the video")
+            print("stdout:", proc.stdout)
+            print("stderr:", proc.stderr)
+            raise RuntimeError("An error occured while extracting GPS data")
+
+        # now extract the timestamp from the gpx file
+        ns = {"gpx": "http://www.topografix.com/GPX/1/1"}
+        tree = ET.parse(f"{tmpfile}.gpx")
+        root = tree.getroot()
+        time_el = root.find("gpx:metadata/gpx:time", ns)
+        #import pdb; pdb.set_trace()
+        if time_el is None:
+            raise RuntimeError(f"Could not find time element in GPS data ({tmpfile}.gpx)")
+        timestr = time_el.text[:-1]  # remove trailing 'Z'
+
+        # remove the temporary file
+        pathlib.Path(tmpfile).unlink(missing_ok=True)
+
+        # convert to timestamp and return
+        dt = datetime.datetime.fromisoformat(timestr)
+        dt = dt.replace(tzinfo=datetime.timezone.utc)  # mark this time as UTC
+        dt = dt.astimezone()  # and now its local - same as the other time refs
+        return dt.timestamp()
 
     def add_overlay(self, logfile):
         cfg = self._cfg.log  # convenience variable
@@ -419,6 +468,8 @@ class VidLog(object):
 
 class VidProps(object):
     def __init__(self, vidfile):
+        if _verbose:
+            print("starting collecting video properties")
         self._filename = vidfile
         probe = ffmpeg.probe(vidfile) 
         vidstream = None
@@ -429,25 +480,34 @@ class VidProps(object):
         if vidstream:
             self._props = vidstream
             # get creation time string, remove trailing 'Z'
+            # after experimentaion, it has been determined the creation
+            # time most accurately reflects the start time of the video
             ctstr = vidstream['tags']['creation_time'][:-1]
             ctdt = datetime.datetime.fromisoformat(ctstr)
+            self._ts = ctdt.timestamp()
             # get the timecode, which is just a time
+            # not sure what this is for but we will preserve it as string
             tcstr = vidstream['tags']['timecode']
-            tcframes = tcstr[-2:]    # extract num frames
-            tcstr = tcstr[:-3]      # chop off frames
-            tc = datetime.time.fromisoformat(tcstr) # get time as whole seconds
-            frac_sec = float(tcframes) / 30.0
-            usecs = int(frac_sec * 1000000)
-            tc = tc.replace(microsecond=usecs)  # add in the usecs
+            self._tc = tcstr
+
+            # OLD STUFF - eventually delete
+            #tcframes = tcstr[-2:]    # extract num frames
+            #tcstr = tcstr[:-3]      # chop off frames
+            #tc = datetime.time.fromisoformat(tcstr) # get time as whole seconds
+            #frac_sec = float(tcframes) / 30.0
+            #usecs = int(frac_sec * 1000000)
+            #tc = tc.replace(microsecond=usecs)  # add in the usecs
             # now we have timecode, and creation_time from file metadata
             # timecode is just time, not date, but time is accurate start time
             # wherease creation_time seems to be ~1 second off, but it has the date
             # take the date from creation_time, and use timecode to form new
             # timestamp
-            timestamp = datetime.datetime.combine(ctdt.date(), tc)
-            self._ts = timestamp.timestamp()
+            #timestamp = datetime.datetime.combine(ctdt.date(), tc)
+            #self._ts = timestamp.timestamp()
         else:
             raise RuntimeError(f"could not find video stream in file {vidfile}")
+        if _verbose:
+            print("finished collecting video properties")
 
     @property
     def filename(self):
@@ -484,6 +544,10 @@ class VidProps(object):
     def timestamp(self):
         return self._ts
 
+    @property
+    def timecode(self):
+        return self._tc
+
     def __str__(self):
         desc = f"Video file '{self.filename}' properties:\n"
         desc += f"codec: {self.description}\n"
@@ -492,6 +556,7 @@ class VidProps(object):
         desc += "start time: "
         desc += datetime.datetime.fromtimestamp(self.timestamp).isoformat(sep=' ')
         desc += '\n'
+        desc += f"timecode: {self.timecode}\n"
         return desc
 
 def cli():
@@ -521,6 +586,9 @@ def cli():
     _quiet = True if args.quiet else False
 
     vid = VidLog(vidfile=args.input, outfile=args.output, start=args.start, duration=args.duration)
+    if _verbose:
+        print(vid)
+
     vid.add_overlay(args.logfile)
     vid.add_dash(args.dash)
 
