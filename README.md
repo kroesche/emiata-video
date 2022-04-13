@@ -48,7 +48,8 @@ Here are the command line options, and example output:
 ```
 $ vidlog --help
 
-usage: vidlog [-h] [-v] [-q] -i INPUT -l LOGFILE -d DASH [-o OUTPUT] [-t DURATION] [-ss START]
+usage: vidlog [-h] [-v] [-q] -i INPUT -l LOGFILE -d DASH [-o OUTPUT] [-t DURATION] [-ss START] [--bad-gps]
+              [--check-timestamps]
 
 eMiata Video Processor
 
@@ -67,6 +68,8 @@ optional arguments:
                         duration in seconds
   -ss START, --start START
                         start position in seconds
+  --bad-gps             dont use GPS for time, use file time instead
+  --check-timestamps    check file timestamps and exit
 ```
 
 Example that processes 15 seconds of video starting at 80 seconds from the
@@ -124,9 +127,6 @@ If the log file runs out of lines before the end of the video, then no new
 lines are added to the panel. A message is added to the panel indicating end
 of log.
 
-**TODO** future feature is to use a command line option to specify the log
-file time offset.
-
 ### Primary Video
 
 The primary video comes from a video camera such as a GoPro, and includes
@@ -179,6 +179,9 @@ detection so it might be overkill for this task. Also, it does not handle
 audio. Finally, the font choices are a limited set of simple vector fonts, so
 we lose the ability to choose a nice looking fixed pitch font, or to make font
 adjustments for easier on-screen reading.
+
+However, OpenCV makes it really easy to do some kind of processing every frame
+and so that is how the log text is added for each frame of the video.
 
 Another tool that was considered is `pymovie`. This lets you process video and
 do things like composite overlays. It can probably be made to work as well, but

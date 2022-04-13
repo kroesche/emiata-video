@@ -486,8 +486,12 @@ class VidLog(object):
     def add_dash(self, dashfile):
         cfg = self._cfg.dash  # convenience variable
         logging.info(f"Processing dash instruments file {dashfile}")
+        # compute offset between start of dash file and start of video file
+        dashts = VidLog.dash_timestamp(dashfile)
+        tsoffset = self.timestamp - dashts
+        logging.debug(f"Computed dash timestamp offset: {tsoffset}")
         vid = ffmpeg.input(self._tmpfile, hide_banner=None)
-        dash = ffmpeg.input(dashfile, ss=self._start, t=self._duration)
+        dash = ffmpeg.input(dashfile, ss=self._start+tsoffset, t=self._duration)
         audio = ffmpeg.input(self._vidfile, ss=self._start, t=self._duration)
         astream = audio.audio
 
@@ -505,6 +509,20 @@ class VidLog(object):
         out.run(quiet=not _verbose, overwrite_output=True)
         logging.info("Finished processing dash instruments")
 
+    @staticmethod
+    def dash_timestamp(dashfile):
+        logging.info("determining timestamp of dashfile")
+        logging.debug(f"using dashfile: {dashfile}")
+        probe = ffmpeg.probe(dashfile)
+        try:
+            # extract the timestamp metadata, remove trailing 'Z'
+            tstr = probe['format']['tags']['TIMESTAMP'][:-1]
+            logging.debug(f"found TIMESTAMP ['{tstr}']")
+        except KeyError:
+            logging.error(f"could not find a TIMESTAMP in the dash file [{dashfile}]")
+            raise RuntimeError(f"Dash file {dashfile} does not have a 'TIMESTAMP' tag")
+
+        return datetime.datetime.fromisoformat(tstr).timestamp()
 
 class VidProps(object):
     def __init__(self, vidfile):
@@ -644,8 +662,10 @@ def cli():
         vid_ts = datetime.datetime.fromtimestamp(vid.timestamp).isoformat(sep=' ')
         lb = LogBuffer(args.logfile)
         lb_ts = datetime.datetime.fromtimestamp(lb.timestamp).isoformat(sep=' ')
+        dash_ts = datetime.datetime.fromtimestamp(VidLog.dash_timestamp(args.dash)).isoformat(sep=' ')
         print(f"Video Timestamp: {vid_ts}")
         print(f"Log Timestamp:   {lb_ts}")
+        print(f"Dash Timestamp:  {dash_ts}")
         sys.exit()
 
     vid.add_overlay(args.logfile)
