@@ -17,7 +17,8 @@ setup(
     ],
     entry_points = {
         "console_scripts": [
-            "vidlog=vidlog.vidlog:cli"]
+            "vidlog=vidlog.vidlog:cli",
+            "vidlog-init-config=vidlog:init_config_cli"]
     },
     classifiers = [
         "Private :: Do Not Upload"

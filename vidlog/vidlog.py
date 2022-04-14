@@ -39,27 +39,10 @@ import logging
 
 _verbose = False
 _quiet = False
-"""
-# TODO make all this stuff configurable
-font = cv.FONT_HERSHEY_PLAIN
-fontscale = 0.9
-lineheight = 16
-logarea = (640, 180)
-logpos = (20, 20)
-logpadl = 10
-logpadt = 20
-logfg = (255, 255, 255)
-logbg = (40, 40, 40)
-logalpha = 0.4
-
-textposx = logpos[0] + logpadl
-textposy = logpos[1] + logpadt
-logtl = logpos
-logbr = (logpos[0] + logarea[0], logpos[1] + logarea[1])
-"""
 
 class Config(object):
     def __init__(self, cfgfile=None):
+        self._cfgfile = cfgfile
         self._cfg = configparser.ConfigParser()
         if cfgfile:
             self._cfg.read(cfgfile)
@@ -69,22 +52,30 @@ class Config(object):
             self._log = LogConfig(config=cfglog)
         else:
             self._log = LogConfig()
+            self.create_section("LogOverlay", self._log._cfg)
 
         if self._cfg.has_section('DashOverlay'):
             cfgdash = self._cfg['DashOverlay']
             self._dash = DashConfig(config=cfgdash)
         else:
             self._dash = DashConfig()
+            self.create_section("DashOverlay", self._dash._cfg)
 
         if self._cfg.has_section('TimeOverlay'):
             cfgdash = self._cfg['TimeOverlay']
             self._time = TimeConfig(config=cfgdash)
         else:
             self._time = TimeConfig()
+            self.create_section("TimeOverlay", self._time._cfg)
         logging.debug("Config:\n" + str(self))
 
     def __str__(self):
         return str(self._log) + str(self._dash) + str(self._time)
+
+    def create_section(self, section_name, contents):
+        self._cfg.add_section(section_name)
+        for key, value in contents.items():
+            self._cfg.set(section_name, key, value)
 
     @property
     def log(self):
@@ -97,6 +88,11 @@ class Config(object):
     @property
     def time(self):
         return self._time
+
+    def save(self, cfgfile):
+        self._cfgfile = cfgfile
+        with open(cfgfile, "wt") as cfile:
+            self._cfg.write(cfile)
 
 class LogConfig(object):
     _fontmap = {
@@ -141,14 +137,14 @@ class LogConfig(object):
 
     def __str__(self):
         desc = "LogConfig:\n"
-        desc += f"num lines:      {self.lines}\n"
-        desc += f"font:           {self.font}\n"
-        desc += f"fontscale:      {self.fontscale}\n"
-        desc += f"lineheight:     {self.lineheight}\n"
-        desc += f"box dimensions: {self.width}x{self.height}\n"
-        desc += f"box origin:     {self.x},{self.y}\n"
-        desc += f"box padding:    {self.padx},{self.pady}\n"
-        desc += f"colors:         fg({self.fgcolor}) bg({self.bgcolor}) alpha({self.alpha})\n"
+        desc += f"  num lines:      {self.lines}\n"
+        desc += f"  font:           {self.font}\n"
+        desc += f"  fontscale:      {self.fontscale}\n"
+        desc += f"  lineheight:     {self.lineheight}\n"
+        desc += f"  box dimensions: {self.width}x{self.height}\n"
+        desc += f"  box origin:     {self.x},{self.y}\n"
+        desc += f"  box padding:    {self.padx},{self.pady}\n"
+        desc += f"  colors:         fg({self.fgcolor}) bg({self.bgcolor}) alpha({self.alpha})\n"
         return desc
 
 class DashConfig(object):
@@ -170,6 +166,14 @@ class DashConfig(object):
         self.height = int(cfg['height'])
         self.x = int(cfg['x'])
         self.y = int(cfg['y'])
+
+    def __str__(self):
+        desc = "DashConfig:\n"
+        desc += f"  width:          {self.width}\n"
+        desc += f"  height:         {self.height}\n"
+        desc += f"  x:              {self.x}\n"
+        desc += f"  y:              {self.y}\n"
+        return desc
 
 class TimeConfig(object):
     _default = {
@@ -204,6 +208,16 @@ class TimeConfig(object):
         self.fgcolor = ast.literal_eval(cfg['fgcolor'])
         self.bgcolor = ast.literal_eval(cfg['bgcolor'])
         self.alpha = float(cfg['alpha'])
+
+    def __str__(self):
+        desc = "TimeConfig:\n"
+        desc += f"  font:           {self.font}\n"
+        desc += f"  fontscale:      {self.fontscale}\n"
+        desc += f"  box dimensions: {self.width}x{self.height}\n"
+        desc += f"  box origin:     {self.x},{self.y}\n"
+        desc += f"  box padding:    {self.padx},{self.pady}\n"
+        desc += f"  colors:         fg({self.fgcolor}) bg({self.bgcolor}) alpha({self.alpha})\n"
+        return desc
 
 # maintains a list of text lines in the log display buffer
 # based on log file timestamps
@@ -619,8 +633,10 @@ def cli():
     global _verbose
     global _quiet
 
-    #import pdb; pdb.set_trace()
-    parser = argparse.ArgumentParser(description="eMiata Video Processor")
+    epilog = "You can generate default config file with 'vidlog-init-config'"
+
+    parser = argparse.ArgumentParser(description="eMiata Video Processor",
+                        epilog=epilog)
     parser.add_argument('-v', "--verbose", action="store_true",
                         help="turn on extra output")
     parser.add_argument('-q', "--quiet", action="store_true",
@@ -632,6 +648,8 @@ def cli():
                         help="output video file (default=processed.mp4)")
     parser.add_argument('-t', "--duration", type=int, help="duration in seconds")
     parser.add_argument('-ss', "--start", type=int, help="start position in seconds")
+    parser.add_argument("--config-name", type=str, default="vidlog.ini",
+                        help="specify config file name (default: vidlog.ini)")
     parser.add_argument("--bad-gps", action="store_true",
                         help="dont use GPS for time, use file time instead")
     parser.add_argument("--check-timestamps", action="store_true",
@@ -656,7 +674,18 @@ def cli():
 
     logging.info("If you dont want to see these messages, use --quiet")
 
-    vid = VidLog(vidfile=args.input, outfile=args.output, start=args.start, duration=args.duration, gps_time=not args.bad_gps)
+    # check for existence of config file
+    if os.path.isfile(args.config_name):
+        logging.debug("Found existing config file")
+        cfg = Config(args.config_name)
+    else:
+        print("\n*** MISSING CONFIGURATION FILE! USING DEFAULTS ***")
+        print("you can generate a config file with vidlog-init-config\n")
+        cfg = Config()
+        logging.debug("did not find existing config file")
+
+    vid = VidLog(vidfile=args.input, outfile=args.output, start=args.start,
+                 duration=args.duration, gps_time=not args.bad_gps, cfg=cfg)
 
     if args.check_timestamps:
         vid_ts = datetime.datetime.fromtimestamp(vid.timestamp).isoformat(sep=' ')
@@ -672,11 +701,23 @@ def cli():
     vid.add_dash(args.dash)
     vid.cleanup()
 
-#    props = VidProps(args.input)
-#    print(props)
-#    add_log_overlay(args.input, args.logfile, tmpfile)
-#    combine_dash(tmpfile, args.dash, args.input, args.output)
-#    os.remove(tmpfile)
+# one-time generate default config file
+def init_config_cli():
+
+    parser = argparse.ArgumentParser(description="Create default configuration file")
+    parser.add_argument("--config-name", type=str, default="vidlog.ini",
+                        help="specify config file name (default: vidlog.ini)")
+    args = parser.parse_args()
+
+    if os.path.isfile(args.config_name):
+        print(f"\nThere is already a file named {args.config_name}")
+        print("you must delete it or rename it before you can generate")
+        print("a new default config file with that name\n")
+        sys.exit(1)
+
+    print(f"Creating default configuration file [{args.config_name}]")
+    cfg = Config()
+    cfg.save(args.config_name)
 
 if __name__ == "__main__":
     cli()

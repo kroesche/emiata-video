@@ -48,8 +48,8 @@ Here are the command line options, and example output:
 ```
 $ vidlog --help
 
-usage: vidlog [-h] [-v] [-q] -i INPUT -l LOGFILE -d DASH [-o OUTPUT] [-t DURATION] [-ss START] [--bad-gps]
-              [--check-timestamps]
+usage: vidlog [-h] [-v] [-q] -i INPUT -l LOGFILE -d DASH [-o OUTPUT] [-t DURATION] [-ss START]
+              [--config-name CONFIG_NAME] [--bad-gps] [--check-timestamps]
 
 eMiata Video Processor
 
@@ -68,8 +68,12 @@ optional arguments:
                         duration in seconds
   -ss START, --start START
                         start position in seconds
+  --config-name CONFIG_NAME
+                        specify config file name (default: vidlog.ini)
   --bad-gps             dont use GPS for time, use file time instead
   --check-timestamps    check file timestamps and exit
+
+You can generate default config file with 'vidlog-init-config'
 ```
 
 Example that processes 15 seconds of video starting at 80 seconds from the
@@ -96,6 +100,81 @@ deactivate first:
 ```
 $ deactivate
 $ rm -rf venv
+```
+
+Configuration
+-------------
+
+The `vidlog` program will use a configuration file if present. If there is no
+configuration file, then it will use default values for all the configurable
+items.
+
+The default configuration file name is `vidlog.ini`, in the working directory.
+You can specify a different file using the `--config-name` option.
+
+You can generate a new configuration file with default values with the command
+`vidlog-init-config`. Once you have the file, you can edit it to change the
+configurable items.
+
+### Configurable Items
+
+Below is the default configuration file, annotated with comments. You should
+not use this for a starting point - instead use `vidlog-init-config`.
+
+```ini
+# config items for the CAN log text overlay
+[LogOverlay]
+# number of lines of text in the overlay
+lines = 36
+# font name - specific to opencv
+font = FONT_HERSHEY_PLAIN
+# scaling factor for font - adjust text size
+fontscale = 0.9
+# distance between each line of text
+lineheight = 16
+# width and height in pixels, of the text overlay box
+width = 800
+height = 600
+# upper left position, in pixels of the text overlay
+x = 20
+y = 20
+# internal padding in pixels, from edge of box to text
+padx = 10
+pady = 20
+# text foreground color, and overlay box background color
+fgcolor = (255, 255, 255)
+bgcolor = (40, 40, 40)
+# transparency of the overlay box
+alpha = 0.4
+
+# config items for the instrument panel overlay
+[DashOverlay]
+# size and position, in pixels, of the dash overlay
+width = 840
+height = 600
+x = 2990
+y = 20
+
+# config items for the time display box
+[TimeOverlay]
+# font name - specific to opencv
+font = FONT_HERSHEY_PLAIN
+# size of text
+fontscale = 1.5
+# size of box containing the time
+width = 400
+height = 28
+# position of the box
+x = 1720
+y = 20
+# internal padding of text
+padx = 10
+pady = 20
+# text color, and box background color
+fgcolor = (255, 255, 255)
+bgcolor = (40, 40, 40)
+# box transparency
+alpha = 0.4
 ```
 
 Inputs and Outputs
@@ -140,10 +219,37 @@ the overlays have been applied.
 The primary video feeds into the `vidlog` program where it is overlaid with
 log data text.
 
+#### Time Syncronization
+
+`vidlog` extracts the starting time of the video in one of two ways. By default
+it looks for a GPS telemetry data stream with timestamp metadata. This is
+specific to GoPro video. If GPS is not available, then the `--bad-gps` option
+can be used, and then a video metadata tag called `creation_time` will be used.
+This metadata tag is also specific to GoPro video, but it could be added to
+any video by using ffmpeg.
+
+An accurate starting time is required in order to ensure all the components
+are synchronized correctly.
+
 ### Instrument Video
 
 The instrument video show the instrument panel (dials, gauges, readouts, etc).
 It is overlaid onto the final video using *ffmpeg*.
+
+The instrument video should have a metadata tag added that is the starting
+time of the recording. The metadata tag is `TIMESTAMP` and looks like this:
+
+```
+Input #0, matroska,webm, from 'testfiles/voko_2.mkv':
+  Metadata:
+    TIMESTAMP       : 2022-03-17T19:52:38Z
+    ENCODER         : Lavf58.76.100
+  Duration: 00:04:35.13, start: 0.000000, bitrate: 234 kb/s
+```
+
+This `TIMESTAMP` metadata tag must either be added at the time the video is
+recorded, or added later with post processing and before it is used with
+`vidlog`.
 
 ### Final Video
 
@@ -153,21 +259,10 @@ the instrument panel video. Finally, the original audio is also recombined.
 These inputs are all combined using *ffmpeg* to produce the final video with
 all overlays, and audio.
 
-Limitations
------------
+Features and Limitations
+------------------------
 
-The current iteration of this program makes a number of assumptions. All of the
-following are meant to be improved in future versions. See the github issues
-for a list of TODOs.
-
-**Assumptions**
-
-* (FIXED) the start of the primary video and the log file are the same time
-* (FIXED) the log file contains at least as much data as the video duration
-* (FIXED) the instrument panel video is the same duration
-* the overlay positions and sizes are hard coded
-* the overlay properties (text color, bg color, font size, etc)
-  are all hard coded
+GitHub issues are used to track known problems and list future features.
 
 Discussion of Approaches
 ------------------------
