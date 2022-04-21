@@ -228,8 +228,14 @@ class LogBuffer(object):
         self._max = maxlines
         self._file = open(filename, "rt")
         self._nextline = self._file.readline().strip()
+        if self._nextline[0:2] == "ts":
+            logging.debug("stripping header line from log file")
+            self._nextline = self._file.readline().strip()
         self._nextts = datetime.datetime.strptime(self._nextline[:26], self._fmt).timestamp()
-        self._file.seek(0)
+        # TODO fix seek to first valid line
+        # at the moment we lose first line of data
+        # the problem is the header line removal above
+        #self._file.seek(0)
         self._buf = []
         logging.debug("Created LogBuffer\n" + str(self))
 
@@ -647,7 +653,7 @@ def cli():
     parser.add_argument('-o', "--output", default="processed.mp4",
                         help="output video file (default=processed.mp4)")
     parser.add_argument('-t', "--duration", type=int, help="duration in seconds")
-    parser.add_argument('-ss', "--start", type=int, help="start position in seconds")
+    parser.add_argument('-ss', "--start", type=int, default=0, help="start position in seconds")
     parser.add_argument("--config-name", type=str, default="vidlog.ini",
                         help="specify config file name (default: vidlog.ini)")
     parser.add_argument("--bad-gps", action="store_true",
